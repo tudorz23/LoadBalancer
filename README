@@ -1,0 +1,97 @@
+/* Copyright Marius-Tudor Zaharia 313CAa 2022-2023 */
+/* Tema 2: Load Balancer */
+
+*General
+	Am folosit pentru implementare doua structuri, una pentru server si una
+pentru load balancer. In structurile de tip server_memory am stocat id-ul,
+label-ul si hashtable-ul in care se stocheaza obiectele din server, care sunt
+perechi de tipul <cheie, valoare>. In structura de tip load_balancer am stocat
+hashring-ul, care in logica mea este un array de pointeri la structuri de tip
+server, <size>, care reprezinta numarul de elemente din hashring (servere +
+replici) si <capacity>, care indica dimensiunea alocata pentru array-ul
+hashring, utila pentru a sti cand trebuie redimensionat acesta. Incep cu o
+capacitate INIT_RING_CAPACITY de 3, suficienta pentru a stoca un server cu
+replicile sale, urmand sa folosesc functia realloc() atunci cand este nevoie de
+o dimensiune mai mare sau daca array-ul trebuie scurtat.
+
+*Functiile pentru hashtable
+	Am preluat aceste functii din rezolvarea mea de la laboratorul 4.
+
+*Functiile din 'server.c'
+	Toate aceste functii se bazeaza aproape exclusiv pe functiile pentru
+hashtable. Functia init_server_memory() aloca dinamic o structura de tip server
+si initializeaza id-ul si label-ul server-ului cu -1, creand un hashtable gol.
+
+*Functiile din 'load_balancer.c'
+	
+**loader_add_server()
+	Prima functie care apare in ordine cronologica in program dupa functia de
+init(care este foarte clara) este cea de adaugare a unui server. Aceasta
+determina cele 3 label-uri corespunzatoare id-ului primit. Pentru fiecare label
+in parte, se apeleaza intai get_replica_position(), apoi server_put().
+
+***get_replica_position()
+	Aceasta contine o cautare binara usor modificata, in sensul ca nu se
+opreste atunci cand o anumita valoare este gasita pe pozitia <middle>, ci
+atunci cand left == right. Se cauta in functie de hash-ul label-ului de
+adaugat, comparandu-se cu hash-ul label-urilor deja prezente in hashring. In
+cele mai multe cazuri, cautarea se va opri atunci cand left devine egal cu
+right, cum am spus si mai sus, dar asta nu ne garanteaza pozitia relativa fata
+de pozitia gasita unde trebuie plasat server-ul cu label-ul de adaugat. De
+aceea, dupa iesirea din bucla, mai comparam o data hash-ul nostru cu hash-ul
+label-ului de la pozitia gasita, astfel fiind siguri unde trebuie adaugata
+replica server-ului nostru. De remarcat ca algoritmul functioneaza si pentru
+cazul in care hash-ul este deja prezent in hashring, dar si pentru cazurile
+extreme, cand trebuie adaugat pe pozitia 0 sau pe ultima pozitie.
+
+***server_put()
+	Intai se verifica daca este necesara o redimensionare a hashring-ului. In
+continuare, toate elementele incepand cu cel de pe pozitita pe care dorim sa
+adaugam replica se muta cu o pozitie mai la dreapta, lucru usor de facut,
+intrucat se schimba doar legaturile (pointerii), asemanator cu operatiile de pe
+listele inlantuite. Apoi, pe pozitia respectiva, se aloca memorie pentru un nou
+server. Se determina pozitia vecinului situat in sens orar, pentru a sti unde
+trebuie sa cautam obiecte ce ar trebui mutate pe noul server. Mutarea efectiva
+se face prin intermediul functiei move_objects_between_servers().
+
+***move_objects_between_servers()
+	Problema se imparte pe 3 cazuri, cand pozitia vecinului este 0, 1 sau nici
+0, nici 1. Toate 3 se bazeaza pe aceeasi idee, parcurgem bucket-urile din
+hashtable-ul server-ului vecin si comparam hash-urile fiecarei chei cu hash-ul
+label-ului nostru. Necesitatea tratarii a 3 cazuri vine din diferenta
+conditiilor necesare pentru ca un obiect sa se mute de pe un server pe altul,
+conditii pe care le-am dedus dupa multe incercari si exemple luate pe foaie.
+Dupa ce se determina daca obiectul trebuie mutat, este adaugat in hashtable-ul
+server-ului nou si este eliminat din cel vechi.
+
+**loader_store()
+	Calculam hash-ul cheii de adaugat, apoi apelam get_server_for_key() pentru
+a determina server-ul in care trebuie adaugta cheia. Cautarea binara este
+aproape la fel cu cea dinainte, doar ca la final difera verificarile, in sensul
+in care nu mai apare cazul in care departajarea se face dupa id-ul server-ului.
+Am preferat sa fac functie noua de cautare, desi seamana cu cealalta, pentru a
+fi mai usor de inteles codul, fiecare functie face un singur lucru. Dupa
+determinarea pozitiei, se adauga obiectul in server cu functia din 'server.c'.
+
+**loader_retrieve()
+	Este aproape la fel cu cea precedenta, determina server-ul in care cautam
+cheia si apoi folosim functia din 'hashtable.c' pentru a o cauta efectiv.
+
+**loader_remove_server()
+	Intai, se verifica daca size este egal cu 3, adica daca mai este doar un
+singur server in hashring, caz in care se elimina cu tot cu obiectele din el.
+In caz contrar, asemanator functiei de add, se determina label-urile asociate
+id-ului server-ului pe care dorim sa il eliminam. Se face cautare binara pentru
+a gasi pozitia in hashring a replicii cu label-ul respectiv. De aceasta data,
+cautarea binara este una clasica, normala, se opreste cand se gaseste valoarea.
+Dupa ce se gaseste pozitia, se apeleaza server_out(). In aceasta, se determina
+pozitia vecinului in sens orar. De aceasta data, cu siguranta obiectele din
+server-ul eliminat se vor duce in server-ul vecin, nu mai trebuie facuta vreo
+verificare. Dupa mutare, se elibereaza memoria pentru server-ul vechi si se
+muta toate elementele din hashring de la final pana la <position> cu o pozitie
+la stanga, daca server-ul eliminat nu se afla pe ultima pozitie.
+
+***Feedback
+	Tema a fost interesanta, am intrat in contact cu un concept util. Cea mai
+dificila parte mi s-a parut rezolvarea cazurilor particulare de la functia add,
+am stat foarte mult timp sa imi da seama care sunt si cum trebuie tratate.
